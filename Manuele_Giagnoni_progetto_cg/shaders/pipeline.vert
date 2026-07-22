@@ -18,12 +18,14 @@ out vec2 texCoords;
 out vec3 sunlightDir;
 out vec3 vPosVS;
 out vec4 vCoordLS;
+out vec3 FragPos;
 
 void main(){
 	fColori = aColori;
 	gl_Position = projection_matrix * view_matrix * model_matrix * vec4(aPos, 1.0);
 	sunlightDir = (view_matrix * vec4(uSunlight, 0.f)).xyz;
-	vPosVS = (view_matrix * model_matrix * vec4(aPos, 1.0)).xyz; 
+	vPosVS = (view_matrix * model_matrix * vec4(aPos, 1.0)).xyz;
+	FragPos = vec3(model_matrix * vec4(aPos, 1.0));
 
 	if(oggetto_mappato == 0){
 		texCoords = vec2((aPos.x + 1) / 2, (aPos.z + 1) / 2);
