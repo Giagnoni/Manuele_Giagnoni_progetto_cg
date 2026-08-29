@@ -9,6 +9,7 @@
 #include "3dparty/nanosvg/src/nanosvgrast.h"
 
 #define GLM_ENABLE_EXPERIMENTAL
+#define GLM_FORCE_SWIZZLE
 #include "../common/shaders.h"
 #include "../common/simple_shapes.h"
 #include "../common/matrix_stack.h"
@@ -26,8 +27,15 @@
 #include "../common/intersection.h"
 #include "../common/trackball.h"
 
+#include "imgui.h"
+#include "backends/imgui_impl_glfw.h"
+#include "backends/imgui_impl_opengl3.h"
+
+#define TOTALE_AUTO 10
+
 trackball tb[2];
 int curr_tb;
+int selected_POV = 0;
 
 glm::mat4 proj;
 glm::mat4 view;
@@ -42,7 +50,22 @@ matrix_stack stack;
 
 std::vector<stick_object> alberi, lampioni;
 
-shader fsq_shader;
+struct carlights {
+	glm::vec3 pos1;
+	glm::vec3 pos2;
+	glm::vec3 dir;
+};
+
+struct loc_carlights {
+	GLuint loc_cl_pos1;
+	GLuint loc_cl_pos2;
+	GLuint loc_cl_dir;
+	GLuint loc_sm1;
+	GLuint loc_sm2;
+};
+
+carlights cl[TOTALE_AUTO];
+std::vector<loc_carlights> loc_cl;
 
 /* callback function called when the mouse is moving */
 static void cursor_position_callback(GLFWwindow* window, double xpos, double ypos)
@@ -53,6 +76,8 @@ static void cursor_position_callback(GLFWwindow* window, double xpos, double ypo
 /* callback function called when a mouse button is pressed */
 void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
 {
+	if (ImGui::GetIO().WantCaptureMouse || selected_POV != 0) return;
+
 	if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
 		double xpos, ypos;
 		glfwGetCursorPos(window, &xpos, &ypos);
@@ -67,12 +92,13 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
 /* callback function called when a mouse wheel is rotated */
 void scroll_callback(GLFWwindow* window, double xoffset, double yoffset)
 {
-	if (curr_tb == 0)
+	if (selected_POV != 0) return;
+
+	if (curr_tb == 0 )
 		tb[0].mouse_scroll(xoffset, yoffset);
 }
 
 void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods) {
-	/* every time any key is presse it switch from controlling trackball tb[0] to tb[1] and viceversa */
 	if (action == GLFW_PRESS || action == GLFW_REPEAT) {
 		switch (key) {
 		case GLFW_KEY_S:
@@ -98,18 +124,57 @@ void caricaTextures() {
 	texture_pista.load("textures/TwoLaneRoadWet01_MR_1K/TwoLaneRoadWet01_1K_BaseColor.png", 0);
 }
 
-gltf_loader carica_auto, carica_albero, carica_lampioni;
-std::vector<renderable> modelli_auto, modello_albero, modello_lampioni;
-box3 box;
+gltf_loader carica_auto[TOTALE_AUTO], carica_albero, carica_lampioni, carica_camera;
+std::vector<renderable> modello_albero, modello_lampioni, modello_camera;
+box3 box_albero, box_lampioni, box_camera;
+
+std::vector<std::string> paths_modelli_auto;
+std::vector<std::vector<renderable>> modelli_auto;
+std::vector<box3> box_auto;
 
 void caricaModelli() {
-	carica_albero.load_to_renderable("modelli/uploads_files_5194613_tree.gltf", modello_albero, box);
-	carica_auto.load_to_renderable("modelli/uploads_files_6173471_MUSCLE_CAR.glb", modelli_auto, box);
-	carica_lampioni.load_to_renderable("modelli/StreetLamp2_Tall.glb", modello_lampioni, box);
+	carica_albero.load_to_renderable("modelli/uploads_files_5194613_tree.gltf", modello_albero, box_albero);
+	carica_lampioni.load_to_renderable("modelli/StreetLamp2_Tall.glb", modello_lampioni, box_lampioni);
+	carica_camera.load_to_renderable("modelli/uploads_files_6461868_15_Camera.glb", modello_camera, box_camera);
+
+	modelli_auto.resize(paths_modelli_auto.size());
+	box_auto.resize(paths_modelli_auto.size());
+	for (int i = 0; i < modelli_auto.size(); i++) {
+		carica_auto[i].load_to_renderable(paths_modelli_auto[i], modelli_auto[i], box_auto[i]);
+	}
+}
+
+float depth_bias = 0.0003;
+float altezza_camera = 0;
+float carlights_length = 0.25;
+
+void draw_gui() {
+	ImGui::BeginMainMenuBar();
+
+	if (ImGui::BeginMenu("POVs")) {
+		if (ImGui::Selectable("Trackball", selected_POV == 0)) selected_POV = 0;
+		for (int j = 0; j < r.cameramen().size(); j++) {
+			std::string testo = "Camera " + std::to_string(j + 1);
+			if (ImGui::Selectable(testo.c_str(), selected_POV == j + 1)) selected_POV = j + 1;
+		}
+		ImGui::InputFloat("Altezza camera", &altezza_camera);
+
+		ImGui::EndMenu();
+	}
+
+	if (ImGui::BeginMenu("Ombre")) {
+		ImGui::InputFloat("Depth bias", &depth_bias);
+		ImGui::InputFloat("Lunghezza fanali", &carlights_length);
+
+		ImGui::EndMenu();
+	}
+
+	ImGui::EndMainMenuBar();
 }
 
 void draw_scene(shader sh) {
 	glUseProgram(sh.program);
+	float scala = 1.f;
 
 	fram.bind();
 	glDrawArrays(GL_LINES, 0, 6);
@@ -120,13 +185,6 @@ void draw_scene(shader sh) {
 	glVertex3f(r.sunlight_direction().x, r.sunlight_direction().y, r.sunlight_direction().z);
 	glEnd();
 	if (sh.has_uniform("uSunlight")) glUniform3fv(sh["uSunlight"], 1, &r.sunlight_direction()[0]);
-
-	float s = 1.f / r.bbox().diagonal();
-	glm::vec3 c = r.bbox().center();
-
-	stack.push();
-	stack.mult(glm::scale(glm::mat4(1.f), glm::vec3(s)));
-	stack.mult(glm::translate(glm::mat4(1.f), -c));
 
 	glDepthRange(0.01, 1);
 	glCullFace(GL_FRONT);
@@ -142,35 +200,58 @@ void draw_scene(shader sh) {
 	glCullFace(GL_BACK);
 	if (sh.has_uniform("oggetto_mappato")) glUniform1i(sh["oggetto_mappato"], 2);
 	for (unsigned int ic = 0; ic < r.cars().size(); ++ic) {
+		int im = ic % modelli_auto.size();
+		float scala = r.cars()[ic].box.diagonal() / box_auto[im].diagonal();
+
 		stack.push();
 		stack.mult(r.cars()[ic].frame);
-		stack.mult(glm::translate(glm::mat4(1.f), glm::vec3(0, 0.1, 0.0)));
-		glUniformMatrix4fv(sh["model_matrix"], 1, GL_FALSE, &stack.m()[0][0]);
+		stack.mult(glm::scale(glm::mat4(1.f), glm::vec3(scala, scala, scala)));
+		stack.mult(glm::rotate(glm::mat4(1.f), glm::radians(180.f), glm::vec3(0, 1, 0)));
+
 		//fram.bind();
 		//glDrawArrays(GL_LINES, 0, 6);
 
-		for (int i = 0; i < modelli_auto.size(); i++) {
-			modelli_auto[i].bind();
+		for (int i = 0; i < modelli_auto[im].size(); i++) {
+			modelli_auto[im][i].bind();
 			stack.push();
-			stack.mult(modelli_auto[i].transform);
+			stack.mult(modelli_auto[im][i].transform);
 
 			glActiveTexture(GL_TEXTURE0);
-			glBindTexture(GL_TEXTURE_2D, modelli_auto[i].mater.base_color_texture);
+			glBindTexture(GL_TEXTURE_2D, modelli_auto[im][i].mater.base_color_texture);
 
 			glUniformMatrix4fv(sh["model_matrix"], 1, GL_FALSE, &stack.m()[0][0]);
-			glDrawElements(modelli_auto[i]().mode, modelli_auto[i]().count, modelli_auto[i]().itype, 0);
+			glDrawElements(modelli_auto[im][i]().mode, modelli_auto[im][i]().count, modelli_auto[im][i]().itype, 0);
 			stack.pop();
 		}
 
 		stack.pop();
 	}
 
+	fram.bind();
 	for (unsigned int ic = 0; ic < r.cameramen().size(); ++ic) {
+		if (selected_POV == ic + 1) continue;
+
+		scala = 1 / box_camera.diagonal();
+
 		stack.push();
 		stack.mult(r.cameramen()[ic].frame);
 		stack.mult(glm::scale(glm::mat4(1.f), glm::vec3(4, 4, 4)));
-		glUniformMatrix4fv(sh["model_matrix"], 1, GL_FALSE, &stack.m()[0][0]);
-		glDrawArrays(GL_LINES, 0, 6);
+		stack.mult(glm::scale(glm::mat4(1.f), glm::vec3(scala, scala, scala)));
+		//glUniformMatrix4fv(sh["model_matrix"], 1, GL_FALSE, &stack.m()[0][0]);
+		//glDrawArrays(GL_LINES, 0, 6);
+
+		for (int i = 0; i < modello_camera.size(); i++) {
+			modello_camera[i].bind();
+			stack.push();
+			stack.mult(modello_camera[i].transform);
+
+			glActiveTexture(GL_TEXTURE0);
+			glBindTexture(GL_TEXTURE_2D, modello_camera[i].mater.base_color_texture);
+
+			glUniformMatrix4fv(sh["model_matrix"], 1, GL_FALSE, &stack.m()[0][0]);
+			glDrawElements(modello_camera[i]().mode, modello_camera[i]().count, modello_camera[i]().itype, 0);
+			stack.pop();
+		}
 		stack.pop();
 	}
 
@@ -191,12 +272,13 @@ void draw_scene(shader sh) {
 	//glDrawArrays(GL_LINES, 0, r_trees.vn);
 	glCullFace(GL_BACK);
 	if (sh.has_uniform("oggetto_mappato")) glUniform1i(sh["oggetto_mappato"], 2);
-	float scala = 1.f / modello_albero[0].bbox.diagonal() * alberi[0].height * 2;
+	scala = 1.f / box_albero.diagonal() * alberi[0].height * 2;
 	for (int i = 0; i < alberi.size(); i++) {
 		stack.push();
 
 		stack.mult(glm::translate(alberi[i].pos));
 		stack.mult(glm::scale(glm::mat4(1.f), glm::vec3(scala, scala, scala)));
+		stack.mult(glm::rotate(glm::mat4(1.f), glm::radians(90.f * i), glm::vec3(0, 1, 0)));
 
 		for (int j = 0; j < modello_albero.size(); j++) {
 			modello_albero[j].bind();
@@ -215,7 +297,7 @@ void draw_scene(shader sh) {
 
 	//r_lamps.bind();
 	//glDrawArrays(GL_LINES, 0, r_lamps.vn);
-	scala = 1.f / modello_lampioni[0].bbox.diagonal() * lampioni[0].height * 2;
+	scala = 1.f / box_lampioni.diagonal() * lampioni[0].height * 2;
 	if(sh.has_uniform("uColor")) glUniform3f(sh["uColor"], 0.5, 0.5, 0.5);
 	for (int i = 0; i < lampioni.size(); i++) {
 		stack.push();
@@ -240,25 +322,6 @@ void draw_scene(shader sh) {
 		stack.pop();
 	}
 	if (sh.has_uniform("uColor")) glUniform3f(sh["uColor"], -1, 0.5, 0.5);
-
-	stack.pop();
-}
-
-void draw_full_screen_quad() {
-	r_quad.bind();
-	glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
-}
-
-void draw_texture(GLint tex_id) {
-	GLint at;
-	glGetIntegerv(GL_ACTIVE_TEXTURE, &at);
-	glActiveTexture(GL_TEXTURE3);
-	glBindTexture(GL_TEXTURE_2D, tex_id);
-	glUseProgram(fsq_shader.program);
-	glUniform1i(fsq_shader["uTexture"], 3);
-	draw_full_screen_quad();
-	glUseProgram(0);
-	glActiveTexture(at);
 }
 
 int main() {
@@ -283,7 +346,7 @@ int main() {
 
 	carousel_loader::load("small_test.svg", "terrain_256.png", r);
 
-	for (int i = 0; i < 10; i++) {
+	for (int i = 0; i < TOTALE_AUTO; i++) {
 		r.add_car();
 	}
 
@@ -291,6 +354,11 @@ int main() {
 	glfwSetMouseButtonCallback(window, mouse_button_callback);
 	glfwSetScrollCallback(window, scroll_callback);
 	glfwSetKeyCallback(window, key_callback);
+
+	ImGui::CreateContext();
+	ImGuiIO& io = ImGui::GetIO();
+	ImGui_ImplOpenGL3_Init();
+	ImGui_ImplGlfw_InitForOpenGL(window, true);
 
 	fram = shape_maker::frame();
 	r_cube = shape_maker::cube();
@@ -323,8 +391,11 @@ int main() {
 	curr_tb = 0;
 
 	float smw = w * 2, smh = h * 2;
-	frame_buffer_object fbo;
+	frame_buffer_object fbo, car_fbo[TOTALE_AUTO * 2];
 	fbo.create(smw, smh, true);
+	for (int i = 0; i < TOTALE_AUTO * 2; i++) {
+		car_fbo[i].create(smw, smh, true);
+	}
 
 	r.start(11, 0, 0, 600);
 	r.update();
@@ -332,27 +403,29 @@ int main() {
 	shader shader_program, depth_mapper;
 	shader_program.create_program("shaders/pipeline.vert", "shaders/texture.frag");
 	depth_mapper.create_program("shaders/depthmap.vert", "shaders/depthmap.frag");
-	fsq_shader.create_program("shaders/fsq.vert", "shaders/fsq.frag");
 
 	float altezza_luce = 2.5f;
 	float shadow_frustum_dim = 1.f;
+	float angolo_spotlights = 30.f;
 
-	proj = glm::perspective(glm::radians(45.f), w/float(h), 1.f, 40.f);
+	proj = glm::perspective(glm::radians(45.f), w/float(h), 0.01f, 10.f);
 	view = glm::lookAt(glm::vec3(0, 1.f, 1.5), glm::vec3(0.f, 0.f, 0.f), glm::vec3(0.f, 1.f, 0.f));
 	Lproj = glm::ortho(-shadow_frustum_dim, shadow_frustum_dim, -shadow_frustum_dim, shadow_frustum_dim, 0.f, 15.f);
 	Lview = glm::lookAt(r.sunlight_direction(), glm::vec3(0.f, 0.f, 0.f), glm::vec3(0.f, 0.f, -1.f));
 	Lpv = Lproj * Lview;
 
-
 	glUseProgram(shader_program.program);
 	glUniformMatrix4fv(shader_program["projection_matrix"], 1, GL_FALSE, &proj[0][0]);
 	glUniformMatrix4fv(shader_program["view_matrix"], 1, GL_FALSE, &view[0][0]);
-	glUniform1f(shader_program["uBias"], 0.0003);
+	glUniform1f(shader_program["uBias"], depth_bias);
 	glUniform1i(shader_program["uShadowMap"], 1);
 	glUniform2i(shader_program["uShadowMapSize"], smw, smh);
 	glUniform3f(shader_program["uSunlight"], r.sunlight_direction().x, r.sunlight_direction().y, r.sunlight_direction().z);
 	glUniform3f(shader_program["uColor"], -1, 0, 0);
-	glUniform1f(shader_program["spotCutoff"], 12);
+	glUniform1f(shader_program["spotCutoff"], glm::cos(glm::radians(angolo_spotlights)));
+	glUniform1f(shader_program["att_const"], 1.f);
+	glUniform1f(shader_program["att_lin"], 0.7f);
+	glUniform1f(shader_program["att_quad"], 1.8f);
 
 	glUseProgram(depth_mapper.program);
 	glUniform1f(depth_mapper["uPlaneApprox"], 0.5);
@@ -361,13 +434,43 @@ int main() {
 	alberi = r.trees();
 	lampioni = r.lamps();
 
+	std::vector<glm::vec3> pos_luci;
+	std::vector<GLuint> loc_luci;
+	pos_luci.resize(lampioni.size());
+	loc_luci.resize(lampioni.size());
+	for (int i = 0; i < lampioni.size(); i++) {
+		std::string nome_sl = "sl[" + std::to_string(i) + "]";
+		loc_luci[i] = glGetUniformLocation(shader_program.program, nome_sl.c_str());
+	}
+
+	glUseProgram(shader_program.program);
+	loc_cl.resize(r.cars().size());
+	for (int i = 0; i < r.cars().size(); i++) {
+		std::string nome_pos1 = "cl[" + std::to_string(i) + "][0]";
+		std::string nome_pos2 = "cl[" + std::to_string(i) + "][1]";
+		std::string nome_dir = "clDir[" + std::to_string(i) + "]";
+		std::string nome_sm1 = "uCarlightShadowMap[" + std::to_string(i) + "][0]";
+		std::string nome_sm2 = "uCarlightShadowMap[" + std::to_string(i) + "][1]";
+
+		loc_cl[i].loc_cl_pos1 = glGetUniformLocation(shader_program.program, nome_pos1.c_str());
+		loc_cl[i].loc_cl_pos2 = glGetUniformLocation(shader_program.program, nome_pos2.c_str());
+		loc_cl[i].loc_cl_dir = glGetUniformLocation(shader_program.program, nome_dir.c_str());
+		loc_cl[i].loc_sm1 = glGetUniformLocation(shader_program.program, nome_sm1.c_str());
+		loc_cl[i].loc_sm2 = glGetUniformLocation(shader_program.program, nome_sm2.c_str());
+
+		glUniform1i(loc_cl[i].loc_sm1, i*2 + 2);
+		glUniform1i(loc_cl[i].loc_sm2, i*2 + 3);
+	}
+
+	paths_modelli_auto.push_back("modelli/uploads_files_6173471_MUSCLE_CAR.glb");
+	paths_modelli_auto.push_back("modelli/Nissan+Skyline.glb");
 	caricaTextures();
 	caricaModelli();
 
 	glClearColor(0, 1, 1, 1);
 	glEnable(GL_DEPTH_TEST);
 	glEnable(GL_BLEND);
-	glEnable(GL_CULL_FACE);
+	//glEnable(GL_CULL_FACE);
 
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
@@ -376,10 +479,16 @@ int main() {
 	while (!glfwWindowShouldClose(window)) {
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
+		ImGui_ImplOpenGL3_NewFrame();
+		ImGui_ImplGlfw_NewFrame();
+		ImGui::NewFrame();
+		draw_gui();
+
 		r.update();
 		stack.load_identity();
 		stack.push();
 		stack.mult(tb[0].matrix());
+
 
 		Lview = glm::lookAt(r.sunlight_direction(), glm::vec3(0.f, 0.f, 0.f), glm::vec3(0.f, 0.f, -1.f)) * inverse(tb[0].matrix());
 		Lpv = Lproj * Lview;
@@ -387,12 +496,61 @@ int main() {
 		glUseProgram(shader_program.program);
 		glUniformMatrix4fv(shader_program["model_matrix"], 1, GL_FALSE, &stack.m()[0][0]);
 		glUniformMatrix4fv(shader_program["uLightMatrix"], 1, GL_FALSE, &Lpv[0][0]);
-		glUniform3fv(shader_program["spotDir"], 1, &(tb[0].matrix() * glm::vec4(0, -1, 0, 0))[0]);
+		glUniform3fv(shader_program["spotDir"], 1, &(stack.m() * glm::vec4(0, -1, 0, 0))[0]);
+		glUniform1f(shader_program["uBias"], depth_bias);
+		glUniform1f(shader_program["tb_scaling"], tb[0].scaling_factor);
+		glUniform1f(shader_program["uLunghezzaLuci"], carlights_length);
+
+		float s = 1.f / r.bbox().diagonal();
+		glm::vec3 c = r.bbox().center();
+
+		stack.push();
+		stack.mult(glm::scale(glm::mat4(1.f), glm::vec3(s)));
+		stack.mult(glm::translate(glm::mat4(1.f), -c));
 
 		for (int i = 0; i < lampioni.size(); i++) {
-			glUniform3fv(shader_program["sl[" + std::to_string(i) + "]"], 1, &(tb[0].matrix() * glm::translate(glm::vec3(0, lampioni[i].height, 0)) * glm::vec4(lampioni[i].pos, 1))[0]);
+			pos_luci[i] =stack.m() * glm::vec4(lampioni[i].pos + glm::vec3(0, lampioni[i].height, 0), 1);
+			glUniform3fv(loc_luci[i], 1, &pos_luci[i][0]);
 		}
 
+		if (selected_POV == 0) {
+			glUniformMatrix4fv(shader_program["view_matrix"], 1, GL_FALSE, &view[0][0]);
+		}
+		else {
+			glm::vec3 cp = (stack.m() * glm::translate(r.cameramen()[selected_POV - 1].frame, glm::vec3(0, altezza_camera, 0))[3]);
+			glm::vec3 cd = (glm::transpose(glm::rotate(r.cameramen()[selected_POV - 1].frame, glm::radians(90.f), glm::vec3(0, 1, 0)))[2].zyx());
+
+			glUniformMatrix4fv(shader_program["view_matrix"], 1, GL_FALSE, &(glm::lookAt(cp, cd, glm::vec3(0, 1, 0)))[0][0]);
+		}
+
+		for (int ic = 0; ic < r.cars().size(); ++ic) {
+			int im = ic % modelli_auto.size();
+			float scala = r.cars()[ic].box.diagonal() / box_auto[im].diagonal();
+
+			stack.push();
+			stack.mult(r.cars()[ic].frame);
+			stack.mult(glm::scale(glm::mat4(1.f), glm::vec3(scala, scala, scala)));
+			stack.mult(glm::rotate(glm::mat4(1.f), glm::radians(180.f), glm::vec3(0, 1, 0)));
+
+			stack.push();
+			stack.mult(glm::translate(glm::vec3(0.5, 0, 2)));
+			cl[ic].pos1 = stack.m() * glm::vec4(1, 1, 1, 1);
+			stack.pop();
+
+			stack.push();
+			stack.mult(glm::translate(glm::vec3(-0.5, 0, 2)));
+			cl[ic].pos2 = stack.m() * glm::vec4(1, 1, 1, 1);
+			stack.pop();
+
+			cl[ic].dir = glm::vec3(stack.m() * glm::vec4(0, 0, 1, 0));
+
+			glUniform3fv(loc_cl[ic].loc_cl_pos1, 1, &cl[ic].pos1[0]);
+			glUniform3fv(loc_cl[ic].loc_cl_pos2, 1, &cl[ic].pos2[0]);
+			glUniform3fv(loc_cl[ic].loc_cl_dir, 1, &cl[ic].dir[0]);
+
+			stack.pop();
+		}
+		
 		glUseProgram(depth_mapper.program);
 		glUniformMatrix4fv(depth_mapper["model_matrix"], 1, GL_FALSE, &stack.m()[0][0]);
 		glUniformMatrix4fv(depth_mapper["uLightMatrix"], 1, GL_FALSE, &Lpv[0][0]);
@@ -402,21 +560,34 @@ int main() {
 		glViewport(0, 0, smw, smh);
 		draw_scene(depth_mapper);
 
+		Lpv = glm::perspective(glm::radians(angolo_spotlights), w / float(h), 0.01f, carlights_length) * glm::lookAt(cl[0].pos1, cl[0].dir, glm::vec3(0, 1, 0));
+		glUniformMatrix4fv(depth_mapper["uLightMatrix"], 1, GL_FALSE, &Lpv[0][0]);
+
+		for (int i = 0; i < TOTALE_AUTO * 2; i++) {
+			glBindFramebuffer(GL_FRAMEBUFFER, car_fbo[i].id_fbo);
+			glClear(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT);
+			draw_scene(depth_mapper);
+		}
+
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
 		glViewport(0, 0, w, h);
 		glActiveTexture(GL_TEXTURE1);
 		glBindTexture(GL_TEXTURE_2D, fbo.id_tex);
+
+		for (int i = 0; i < TOTALE_AUTO * 2; i++) {
+			glActiveTexture(GL_TEXTURE2 + i);
+			glBindTexture(GL_TEXTURE_2D, car_fbo[i].id_tex);
+		}
+
 		draw_scene(shader_program);
 
 		stack.pop();
-
-		glViewport(0, 0, 300, 300);
-		glDisable(GL_DEPTH_TEST);
-		draw_texture(fbo.id_tex);
-		glViewport(0, 0, w, h);
-		glEnable(GL_DEPTH_TEST);
+		stack.pop();
 
 		check_gl_errors(__LINE__, __FILE__);
+
+		ImGui::Render();
+		ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
 		glfwSwapBuffers(window);
 

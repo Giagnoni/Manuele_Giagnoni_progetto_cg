@@ -20,6 +20,13 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\..\3dparty\glad\src\glad.c" />
+    <ClCompile Include="..\..\3dparty\imgui\backends\imgui_impl_glfw.cpp" />
+    <ClCompile Include="..\..\3dparty\imgui\backends\imgui_impl_opengl3.cpp" />
+    <ClCompile Include="..\..\3dparty\imgui\imgui.cpp" />
+    <ClCompile Include="..\..\3dparty\imgui\imgui_demo.cpp" />
+    <ClCompile Include="..\..\3dparty\imgui\imgui_draw.cpp" />
+    <ClCompile Include="..\..\3dparty\imgui\imgui_tables.cpp" />
+    <ClCompile Include="..\..\3dparty\imgui\imgui_widgets.cpp" />
     <ClCompile Include="Origine.cpp" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
@@ -108,7 +115,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>..\..\3dparty\glad\include;..\..\3dparty;..\..\3dparty\glfw\include;..\..\3dparty\tinygltf;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..\..\3dparty\imgui;..\..\3dparty\glad\include;..\..\3dparty;..\..\3dparty\glfw\include;..\..\3dparty\tinygltf;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -125,7 +132,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>..\..\3dparty\glad\include;..\..\3dparty;..\..\3dparty\glfw\include;..\..\3dparty\tinygltf;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..\..\3dparty\imgui;..\..\3dparty\glad\include;..\..\3dparty;..\..\3dparty\glfw\include;..\..\3dparty\tinygltf;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>

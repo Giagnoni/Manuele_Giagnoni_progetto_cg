@@ -7,6 +7,8 @@ class trackball {
 
 public: trackball() { reset(); old_tb_matrix = glm::mat4(1.f);}
 
+	  float scaling_factor;
+
 private:
 	/* a bool variable that indicates if we are currently rotating the trackball*/
 	bool is_trackball_dragged;
@@ -28,8 +30,6 @@ private:
 
 	/* old trackball*/
 	glm::mat4  old_tb_matrix;
-
-	float scaling_factor;
 
 	/* trackball center */
 	glm::vec3 center;
