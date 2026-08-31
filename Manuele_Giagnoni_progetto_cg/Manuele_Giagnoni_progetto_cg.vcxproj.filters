@@ -18,28 +18,28 @@
     <ClCompile Include="Origine.cpp">
       <Filter>File di origine</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\3dparty\glad\src\glad.c">
+    <ClCompile Include="glad\src\glad.c">
       <Filter>File di origine</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\3dparty\imgui\imgui.cpp">
+    <ClCompile Include="imgui\imgui.cpp">
       <Filter>File di origine</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\3dparty\imgui\imgui_demo.cpp">
+    <ClCompile Include="imgui\imgui_demo.cpp">
       <Filter>File di origine</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\3dparty\imgui\imgui_draw.cpp">
+    <ClCompile Include="imgui\imgui_draw.cpp">
       <Filter>File di origine</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\3dparty\imgui\imgui_tables.cpp">
+    <ClCompile Include="imgui\imgui_tables.cpp">
       <Filter>File di origine</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\3dparty\imgui\imgui_widgets.cpp">
+    <ClCompile Include="imgui\imgui_widgets.cpp">
       <Filter>File di origine</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\3dparty\imgui\backends\imgui_impl_glfw.cpp">
+    <ClCompile Include="imgui\backends\imgui_impl_glfw.cpp">
       <Filter>File di origine</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\3dparty\imgui\backends\imgui_impl_opengl3.cpp">
+    <ClCompile Include="imgui\backends\imgui_impl_opengl3.cpp">
       <Filter>File di origine</Filter>
     </ClCompile>
   </ItemGroup>
