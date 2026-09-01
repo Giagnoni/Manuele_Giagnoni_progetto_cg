@@ -31,7 +31,7 @@
 #include "backends/imgui_impl_glfw.h"
 #include "backends/imgui_impl_opengl3.h"
 
-#define TOTALE_AUTO 10
+#define TOTALE_AUTO 1
 
 trackball tb[2];
 int curr_tb;
@@ -49,6 +49,8 @@ renderable fram, r_cube, r_lamps, r_terrain, r_track, r_trees, r_quad;
 matrix_stack stack;
 
 std::vector<stick_object> alberi, lampioni;
+
+shader fsq_shader;
 
 struct carlights {
 	glm::vec3 pos1;
@@ -137,9 +139,11 @@ void caricaModelli() {
 	carica_lampioni.load_to_renderable("modelli/StreetLamp2_Tall.glb", modello_lampioni, box_lampioni);
 	carica_camera.load_to_renderable("modelli/uploads_files_6461868_15_Camera.glb", modello_camera, box_camera);
 
-	modelli_auto.resize(paths_modelli_auto.size());
-	box_auto.resize(paths_modelli_auto.size());
-	for (int i = 0; i < modelli_auto.size(); i++) {
+	int n_modelli_da_caricare = TOTALE_AUTO < paths_modelli_auto.size() ? TOTALE_AUTO : paths_modelli_auto.size();
+
+	modelli_auto.resize(n_modelli_da_caricare);
+	box_auto.resize(n_modelli_da_caricare);
+	for (int i = 0; i < n_modelli_da_caricare; i++) {
 		carica_auto[i].load_to_renderable(paths_modelli_auto[i], modelli_auto[i], box_auto[i]);
 	}
 }
@@ -324,6 +328,23 @@ void draw_scene(shader sh) {
 	if (sh.has_uniform("uColor")) glUniform3f(sh["uColor"], -1, 0.5, 0.5);
 }
 
+void draw_full_screen_quad() {
+	r_quad.bind();
+	glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+}
+
+void draw_texture(GLint tex_id) {
+	GLint at;
+	glGetIntegerv(GL_ACTIVE_TEXTURE, &at);
+	glActiveTexture(GL_TEXTURE3);
+	glBindTexture(GL_TEXTURE_2D, tex_id);
+	glUseProgram(fsq_shader.program);
+	glUniform1i(fsq_shader["uTexture"], 3);
+	draw_full_screen_quad();
+	glUseProgram(0);
+	glActiveTexture(at);
+}
+
 int main() {
 	if (!glfwInit()) return -1;
 
@@ -403,6 +424,7 @@ int main() {
 	shader shader_program, depth_mapper;
 	shader_program.create_program("shaders/pipeline.vert", "shaders/texture.frag");
 	depth_mapper.create_program("shaders/depthmap.vert", "shaders/depthmap.frag");
+	fsq_shader.create_program("shaders/fsq.vert", "shaders/fsq.frag");
 
 	float altezza_luce = 2.5f;
 	float shadow_frustum_dim = 1.f;
@@ -560,10 +582,11 @@ int main() {
 		glViewport(0, 0, smw, smh);
 		draw_scene(depth_mapper);
 
-		Lpv = glm::perspective(glm::radians(angolo_spotlights), w / float(h), 0.01f, carlights_length) * glm::lookAt(cl[0].pos1, cl[0].dir, glm::vec3(0, 1, 0));
-		glUniformMatrix4fv(depth_mapper["uLightMatrix"], 1, GL_FALSE, &Lpv[0][0]);
 
 		for (int i = 0; i < TOTALE_AUTO * 2; i++) {
+			Lpv = glm::perspective(glm::radians(angolo_spotlights), w / float(h), 0.01f, carlights_length) * glm::lookAt(cl[i].pos1, glm::rotate(cl[i].dir, glm::radians(90.f), glm::vec3(0, 1, 0)), glm::vec3(0, 1, 0));
+			glUniformMatrix4fv(depth_mapper["uLightMatrix"], 1, GL_FALSE, &Lpv[0][0]);
+
 			glBindFramebuffer(GL_FRAMEBUFFER, car_fbo[i].id_fbo);
 			glClear(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT);
 			draw_scene(depth_mapper);
@@ -588,6 +611,12 @@ int main() {
 
 		ImGui::Render();
 		ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+
+		glViewport(0, 0, 300, 300);
+		glDisable(GL_DEPTH_TEST);
+		draw_texture(car_fbo[0].id_tex);
+		glEnable(GL_DEPTH_TEST);
+		glViewport(0, 0, w, h);
 
 		glfwSwapBuffers(window);
 
