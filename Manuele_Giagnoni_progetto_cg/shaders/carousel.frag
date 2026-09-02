@@ -1,13 +1,14 @@
 #version 460
+#define NUMERO_AUTO 10
+#define NUMERO_LAMPIONI 19
+
 in vec3 fColori;
 in vec2 texCoords;
 in vec3 sunlightDir;
 in vec3 vPosVS;
 in vec4 vCoordLS;
+in vec4 vCoordCL[NUMERO_AUTO][2];
 in vec3 FragPos;
-
-#define NUMERO_AUTO 10
-#define NUMERO_LAMPIONI 19
 
 struct SpotLight{
 	vec3 spotPos;
@@ -41,7 +42,7 @@ out vec4 color;
 void main(){
 	vec3 N = normalize(cross(dFdx(vPosVS),dFdy(vPosVS)));
 	float diffuse = max(0.0,dot(sunlightDir,N));
-	vec3 ambient_light = vec3(0.25,0.25,0.55);
+	vec3 ambient_light = vec3(0.35,0.35,0.65);
 	float lit = 1.0;
 	vec3 spotlit = vec3(0, 0, 0);
 
@@ -55,14 +56,6 @@ void main(){
 					lit  -= 1.0/25.0;
 			}
 
-	for(int i=0; i<NUMERO_AUTO; i++){
-		carStoredDepth1 = texture(uCarlightShadowMap[i][0], pLS.xy).x;
-		carStoredDepth2 = texture(uCarlightShadowMap[i][1], pLS.xy).x;
-
-		if(carStoredDepth1 + uBias < pLS.z && carStoredDepth2 + uBias < pLS.z)
-			lit = 0;
-	}
-
 	for(int i=0; i<NUMERO_LAMPIONI; i++){
 		vec3 lightDir = normalize(sl[i] - FragPos);
 		float theta = dot(lightDir, normalize(-spotDir));
@@ -72,7 +65,8 @@ void main(){
 			break;
 		}
 	}
-
+	
+	vec4 pCL1, pCL2;
 	for(int i=0; i<NUMERO_AUTO; i++){
 		vec3 lightDir1 = normalize(cl[i][0] - FragPos);
 		vec3 lightDir2 = normalize(cl[i][1] - FragPos);
@@ -84,10 +78,17 @@ void main(){
 
 		float theta1 = dot(lightDir1, normalize(-clDir[i]));
 		float theta2 = dot(lightDir2, normalize(-clDir[i]));
+		
+		pCL1 = (vCoordCL[i][0]/vCoordCL[i][0].w)*0.5+0.5;
+		pCL2 = (vCoordCL[i][1]/vCoordCL[i][1].w)*0.5+0.5;
 
-		if(theta1 > spotCutoff && distance1 < uLunghezzaLuci || theta2 > spotCutoff && distance2 < uLunghezzaLuci){
-			vec3 new_light = vec3(0.9, 0.9, 0) * attenuation;
-			spotlit = vec3(max(new_light.x, spotlit.x), max(new_light.y, spotlit.y), max(new_light.z, spotlit.z));
+		carStoredDepth1 = texture(uCarlightShadowMap[i][0], pCL1.xy).x;
+		carStoredDepth2 = texture(uCarlightShadowMap[i][1], pCL2.xy).x;
+
+		if(carStoredDepth1 + uBias > pCL1.z && carStoredDepth2 + uBias > pCL2.z)
+			if(theta1 > spotCutoff && distance1 < uLunghezzaLuci || theta2 > spotCutoff && distance2 < uLunghezzaLuci){
+				vec3 new_light = vec3(0.9, 0.9, 0) * attenuation;
+				spotlit = vec3(max(new_light.x, spotlit.x), max(new_light.y, spotlit.y), max(new_light.z, spotlit.z));
 		}
 	}
 

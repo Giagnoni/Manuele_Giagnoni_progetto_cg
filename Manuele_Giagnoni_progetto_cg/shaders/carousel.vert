@@ -4,10 +4,13 @@ layout (location = 1) in vec3 aColori;
 layout (location = 4) in vec2 aTexCoords;
 layout (location = 10) in vec2 aProg;
 
+#define NUMERO_AUTO 10
+
 uniform mat4 model_matrix;
 uniform mat4 view_matrix;
 uniform mat4 projection_matrix;
 uniform mat4 uLightMatrix;
+uniform mat4 uLightMatrixCL[NUMERO_AUTO][2];
 
 uniform int oggetto_mappato;
 
@@ -18,6 +21,7 @@ out vec2 texCoords;
 out vec3 sunlightDir;
 out vec3 vPosVS;
 out vec4 vCoordLS;
+out vec4 vCoordCL[NUMERO_AUTO][2];
 out vec3 FragPos;
 
 void main(){
@@ -36,4 +40,8 @@ void main(){
 	}
 	
 	vCoordLS =  uLightMatrix*model_matrix*vec4(aPos, 1.0);
+	for(int i=0; i<NUMERO_AUTO; i++){
+		vCoordCL[i][0] =  uLightMatrixCL[i][0]*model_matrix*vec4(aPos, 1.0);
+		vCoordCL[i][1] =  uLightMatrixCL[i][0]*model_matrix*vec4(aPos, 1.0);
+	}
 }

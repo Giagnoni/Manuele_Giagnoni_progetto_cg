@@ -31,7 +31,7 @@
 #include "backends/imgui_impl_glfw.h"
 #include "backends/imgui_impl_opengl3.h"
 
-#define TOTALE_AUTO 1
+#define TOTALE_AUTO 3
 
 trackball tb[2];
 int curr_tb;
@@ -64,6 +64,8 @@ struct loc_carlights {
 	GLuint loc_cl_dir;
 	GLuint loc_sm1;
 	GLuint loc_sm2;
+	GLuint loc_lm1;
+	GLuint loc_lm2;
 };
 
 carlights cl[TOTALE_AUTO];
@@ -422,7 +424,7 @@ int main() {
 	r.update();
 
 	shader shader_program, depth_mapper;
-	shader_program.create_program("shaders/pipeline.vert", "shaders/texture.frag");
+	shader_program.create_program("shaders/carousel.vert", "shaders/carousel.frag");
 	depth_mapper.create_program("shaders/depthmap.vert", "shaders/depthmap.frag");
 	fsq_shader.create_program("shaders/fsq.vert", "shaders/fsq.frag");
 
@@ -473,12 +475,16 @@ int main() {
 		std::string nome_dir = "clDir[" + std::to_string(i) + "]";
 		std::string nome_sm1 = "uCarlightShadowMap[" + std::to_string(i) + "][0]";
 		std::string nome_sm2 = "uCarlightShadowMap[" + std::to_string(i) + "][1]";
+		std::string nome_lm1 = "uLightMatrixCL[" + std::to_string(i) + "][0]";
+		std::string nome_lm2 = "uLightMatrixCL[" + std::to_string(i) + "][1]";
 
 		loc_cl[i].loc_cl_pos1 = glGetUniformLocation(shader_program.program, nome_pos1.c_str());
 		loc_cl[i].loc_cl_pos2 = glGetUniformLocation(shader_program.program, nome_pos2.c_str());
 		loc_cl[i].loc_cl_dir = glGetUniformLocation(shader_program.program, nome_dir.c_str());
 		loc_cl[i].loc_sm1 = glGetUniformLocation(shader_program.program, nome_sm1.c_str());
 		loc_cl[i].loc_sm2 = glGetUniformLocation(shader_program.program, nome_sm2.c_str());
+		loc_cl[i].loc_lm1 = glGetUniformLocation(shader_program.program, nome_lm1.c_str());
+		loc_cl[i].loc_lm2 = glGetUniformLocation(shader_program.program, nome_lm2.c_str());
 
 		glUniform1i(loc_cl[i].loc_sm1, i*2 + 2);
 		glUniform1i(loc_cl[i].loc_sm2, i*2 + 3);
@@ -542,7 +548,7 @@ int main() {
 			glm::vec3 cp = (stack.m() * glm::translate(r.cameramen()[selected_POV - 1].frame, glm::vec3(0, altezza_camera, 0))[3]);
 			glm::vec3 cd = (glm::transpose(glm::rotate(r.cameramen()[selected_POV - 1].frame, glm::radians(90.f), glm::vec3(0, 1, 0)))[2].zyx());
 
-			glUniformMatrix4fv(shader_program["view_matrix"], 1, GL_FALSE, &(glm::lookAt(cp, cd, glm::vec3(0, 1, 0)))[0][0]);
+			glUniformMatrix4fv(shader_program["view_matrix"], 1, GL_FALSE, &(glm::lookAt(cp, cd + cp, glm::vec3(0, 1, 0)))[0][0]);
 		}
 
 		for (int ic = 0; ic < r.cars().size(); ++ic) {
@@ -583,11 +589,24 @@ int main() {
 		draw_scene(depth_mapper);
 
 
-		for (int i = 0; i < TOTALE_AUTO * 2; i++) {
-			Lpv = glm::perspective(glm::radians(angolo_spotlights), w / float(h), 0.01f, carlights_length) * glm::lookAt(cl[i].pos1, glm::rotate(cl[i].dir, glm::radians(90.f), glm::vec3(0, 1, 0)), glm::vec3(0, 1, 0));
+		for (int i = 0; i < TOTALE_AUTO; i++) {
+			Lpv = glm::perspective(glm::radians(angolo_spotlights), w / float(h), 0.01f, carlights_length) * glm::lookAt(cl[i].pos1, cl[i].dir + cl[i].pos1, glm::vec3(0, 1, 0));
+			glUseProgram(depth_mapper.program);
 			glUniformMatrix4fv(depth_mapper["uLightMatrix"], 1, GL_FALSE, &Lpv[0][0]);
+			glUseProgram(shader_program.program);
+			glUniformMatrix4fv(loc_cl[i].loc_lm1, 1, GL_FALSE, &Lpv[0][0]);
 
-			glBindFramebuffer(GL_FRAMEBUFFER, car_fbo[i].id_fbo);
+			glBindFramebuffer(GL_FRAMEBUFFER, car_fbo[i*2].id_fbo);
+			glClear(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT);
+			draw_scene(depth_mapper);
+
+			Lpv = glm::perspective(glm::radians(angolo_spotlights), w / float(h), 0.01f, carlights_length) * glm::lookAt(cl[i].pos2, cl[i].dir + cl[i].pos2, glm::vec3(0, 1, 0));
+			glUseProgram(depth_mapper.program);
+			glUniformMatrix4fv(depth_mapper["uLightMatrix"], 1, GL_FALSE, &Lpv[0][0]);
+			glUseProgram(shader_program.program);
+			glUniformMatrix4fv(loc_cl[i].loc_lm2, 1, GL_FALSE, &Lpv[0][0]);
+
+			glBindFramebuffer(GL_FRAMEBUFFER, car_fbo[i * 2 + 1].id_fbo);
 			glClear(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT);
 			draw_scene(depth_mapper);
 		}
